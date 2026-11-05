@@ -302,6 +302,7 @@ URLs on every phone.
 - [Bluetooth self-heal](https://github.com/SudoManaged/ha-bluetooth-self-heal)
 - [Dehumidifier kit](https://github.com/SudoManaged/ha-dehumidifier-kit)
 - [Internet failover alerts](https://github.com/SudoManaged/ha-internet-failover)
+- [Daily schedule from several calendars](https://github.com/SudoManaged/ha-daily-schedule)
 
 ## Changelog and license
 
