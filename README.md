@@ -301,6 +301,7 @@ URLs on every phone.
 - [Webhook alerts](https://github.com/SudoManaged/ha-webhook-alerts)
 - [Bluetooth self-heal](https://github.com/SudoManaged/ha-bluetooth-self-heal)
 - [Dehumidifier kit](https://github.com/SudoManaged/ha-dehumidifier-kit)
+- [Internet failover alerts](https://github.com/SudoManaged/ha-internet-failover)
 
 ## Changelog and license
 
