@@ -1,0 +1,81 @@
+blueprint:
+  name: Desk phone call log (Yealink Action URLs)
+  description: >-
+    A call log for Yealink desk phones, with no add-on and no cloud. The phones report each call to a
+    local Home Assistant webhook through their Action URL settings, and this sensor keeps the most recent
+    calls in its `calls` attribute: when, which phone, which line, the caller's name and number, and whether
+    the call was answered, missed or outgoing.
+
+
+    One sensor can serve several phones: each phone identifies itself with `ph=` in its Action URLs.
+    Phone setup and a dashboard card: see the repository README.
+  domain: template
+  source_url: https://github.com/SudoManaged/ha-yealink-call-log/blob/main/blueprints/template/sudomanaged/yealink_call_log.yaml
+  author: SudoManaged
+  homeassistant:
+    min_version: 2024.11.0
+  input:
+    webhook_id:
+      name: Webhook ID
+      description: >-
+        A long, random ID. The phones call http://YOUR_HA:8123/api/webhook/YOUR_LONG_RANDOM_ID?... from their
+        Action URLs (see the README for the exact URLs).
+      selector:
+        text:
+    local_only:
+      name: Local network only
+      description: Only accept reports from your local network. Recommended.
+      default: true
+      selector:
+        boolean:
+# Singular "trigger:" keeps this working on Home Assistant releases from before template blueprints
+# accepted "triggers:" (checked: 2024.11 through 2025.4 reject the plural here).
+trigger:
+  - trigger: webhook
+    webhook_id: !input webhook_id
+    allowed_methods:
+      - GET
+      - POST
+    local_only: !input local_only
+sensor:
+  device_class: timestamp
+  icon: mdi:phone-log
+  state: "{{ now().isoformat() }}"
+  attributes:
+    # Keeps the 50 most recent calls (a fixed number: blueprint variables do not reach trigger-based template
+    # sensors on older Home Assistant releases). Events (ev=): incoming, outgoing, missed, ended; clear empties
+    # the log; drop removes one call (ph + c); any other ev changes nothing.
+    # Yealink sends "+" unencoded, so a leading space in a number is turned back into "+". A variable the
+    # firmware does not support arrives literally (for example "$display_remote") and is dropped.
+    # A call is matched by phone + the phone's call number (c). Phones number calls again from the start after a
+    # reboot, so when a new call reuses the number of an older one, the older entry keeps its place in the log
+    # under a key with its start time added; only an entry started in the last 2 minutes (the same call reported
+    # twice) is replaced.
+    calls: >-
+      {% macro plus(v) %}{{ ('+' ~ v[1:]) if (v or '')[:1] == ' ' else (v or '') }}{% endmacro %}
+      {%- macro real(v) %}{{ '' if (v or '')[:1] == '$' else (v or '') }}{% endmacro %}
+      {%- set q = trigger.query %}{% set ev = q.get('ev', '') %}
+      {%- set who = q.get('ph', 'phone') %}{% set key = who ~ '-' ~ real(q.get('c', '')) %}
+      {%- set old = this.attributes.get('calls', []) %}
+      {%- if ev == 'clear' %}{{ [] }}
+      {%- elif ev == 'drop' %}{{ old | rejectattr('key', 'eq', key) | list }}
+      {%- elif ev in ['incoming', 'outgoing'] %}
+      {%- set num = real(q.get('n', '')) | replace('sip:', '') %}{% set num = plus(num.split('@')[0]) | trim %}
+      {%- set t0 = as_timestamp(now()) %}
+      {%- set ns = namespace(l=[{'key': key, 't': now().isoformat(), 'phone': who | title, 'number': num,
+          'name': plus(real(q.get('nm', ''))) | trim, 'line': real(q.get('lu', '')) | trim,
+          'status': 'ringing' if ev == 'incoming' else 'outgoing'}]) %}
+      {%- for c in old %}
+      {%- if c.key == key and t0 - as_timestamp(c.t, 0) < 120 %}
+      {%- elif ns.l | count < 50 %}
+      {%- set ns.l = ns.l + [dict(c, key=c.key ~ '-' ~ (as_timestamp(c.t, 0) | int)) if c.key == key else c] %}
+      {%- endif %}
+      {%- endfor %}
+      {{- ns.l }}
+      {%- elif ev in ['missed', 'ended'] %}{% set ns = namespace(l=[]) %}
+      {%- for c in old %}
+      {%- if c.key == key %}{% set st = 'missed' if ev == 'missed' else ('answered' if c.status == 'ringing' else c.status) %}
+      {%- else %}{% set st = c.status %}{% endif %}
+      {%- set ns.l = ns.l + [dict(c, status=st)] %}
+      {%- endfor %}{{ ns.l }}
+      {%- else %}{{ old }}{% endif %}
